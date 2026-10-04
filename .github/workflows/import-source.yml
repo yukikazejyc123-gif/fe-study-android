@@ -19,7 +19,7 @@ jobs:
       - name: Extract and verify the reviewed source
         run: |
           mkdir source
-          unzip -q fe-study-android-v0.2.0-source.zip -d source
+          python3 -m zipfile -e fe-study-android-v0.2.0-source.zip source
           cd source
           sha256sum -c SOURCE-MANIFEST.sha256
       - uses: actions/setup-node@v4
