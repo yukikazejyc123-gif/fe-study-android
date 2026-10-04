@@ -1,67 +1,71 @@
-name: Build FE Android APK from source archive
+name: Verify FE Android v0.2.0 and build APK
 
 on:
   push:
     branches: [main]
     paths:
       - .github/workflows/import-source.yml
+      - fe-study-android-v0.2.0-source.zip
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  import-and-build:
+  verify-and-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Extract and verify reviewed source archive
+      - name: Extract and verify the reviewed source
         run: |
-          unzip -q -o fe-study-android-source.zip
+          mkdir source
+          unzip -q fe-study-android-v0.2.0-source.zip -d source
+          cd source
           sha256sum -c SOURCE-MANIFEST.sha256
-          test -f app/src/main/assets/questions.js
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Validate reviewed question bank and app flow
+      - name: Verify the question bank and A/B learning flows
+        working-directory: source
         run: |
+          cp app/src/main/assets/questions.js /tmp/fe-reviewed-questions.js
           node scripts/build-question-bank.mjs
-          node --check app/src/main/assets/app.js
-          node --check app/src/main/assets/lessons.js
-          node --check app/src/main/assets/questions.js
-          git diff --exit-code -- app/src/main/assets/questions.js
+          cmp app/src/main/assets/questions.js /tmp/fe-reviewed-questions.js
+          for script in app/src/main/assets/*.js; do node --check "$script"; done
           node scripts/smoke-test.mjs
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v4
-      - name: Install Android platform and build tools
+      - name: Install the Android build tools
         run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
       - uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '8.13'
           cache-provider: basic
-      - name: Build debug APK
+      - name: Build the debug APK
+        working-directory: source
         run: gradle --no-daemon :app:assembleDebug
-      - name: Inspect APK identity and signature
+      - name: Inspect APK identity, assets and signature
+        working-directory: source
         run: |
           APK=app/build/outputs/apk/debug/app-debug.apk
           test -s "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" > apk-badging.txt
-          grep -F "package: name='com.yukikaze.festudy' versionCode='1' versionName='1.0.0'" apk-badging.txt
+          grep -F "package: name='com.yukikaze.festudy' versionCode='2' versionName='0.2.0'" apk-badging.txt
           grep -F "sdkVersion:'24'" apk-badging.txt
           grep -F "targetSdkVersion:'35'" apk-badging.txt
           unzip -l "$APK" | grep -F 'assets/questions.js'
+          unzip -l "$APK" | grep -F 'assets/lessons_b.js'
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK" > apk-signature.txt
           sha256sum "$APK" > apk-sha256.txt
-          cat apk-sha256.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: fe-study-android-debug-apk
+          name: fe-study-android-v0.2.0-debug-apk
           path: |
-            app/build/outputs/apk/debug/app-debug.apk
-            apk-badging.txt
-            apk-signature.txt
-            apk-sha256.txt
+            source/app/build/outputs/apk/debug/app-debug.apk
+            source/apk-badging.txt
+            source/apk-signature.txt
+            source/apk-sha256.txt
           if-no-files-found: error
